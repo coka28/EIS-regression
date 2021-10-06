@@ -1,6 +1,6 @@
-# EIS data visualization
+# EIS data visualisation
 
-import numpy as np
+from regressions import *
 import matplotlib.pyplot as plt
 import matplotlib.patches as mpatches
 import matplotlib.lines as mlines
@@ -8,6 +8,29 @@ import warnings
 warnings.filterwarnings('ignore')
 plt.ion()
 plt.rcParams.update({'mathtext.default': 'regular'})
+
+def i0_plot(Rct,Cred,Cox,beta,k0):
+    R = 8.314
+    F = 96850
+    z = 1
+    T = 298.15
+    val = np.linspace(1/32,31/32,1001)
+    f_Rct = lambda i0 : R*T/z/F/i0
+    i0_ = F*k0*((Cred[0]+Cox[0])*val)**beta*((Cred[0]+Cox[0])*(1-val))**(1-beta)
+
+    fig,ax = plt.subplots()
+    ax.spines['top'].set_visible(False)
+    ax.spines['right'].set_visible(False)
+    ax.set_ylabel('R$_{ct}$',rotation=0,fontsize=11)
+    ax.yaxis.set_label_coords(-0.05,0.95)
+    ax.set_xlabel(r'$\frac{\underset{\,}{C_{red}}}{\overset{\,}{C_{ges}}}$',fontsize=14)
+    ax.xaxis.set_label_coords(1.05,-0.025)
+    ax.plot(Cred/(Cred+Cox),Rct,'x',c='#f00',label='Modelldaten')
+    ax.plot(val,f_Rct(i0_),label='extrapolierter Fit')
+    ax.set_ylim(0,None)
+    ax.set_xlim(0,1)
+    fig.legend()
+    fig.tight_layout()
 
 class marker_handler(object):
     def legend_artist(self, legend, orig_handle, fontsize, handlebox):
@@ -42,7 +65,7 @@ class markerdummy(object):
 class linedummy(object):
     pass
 
-def plot(filename,fmin=20,**model):
+def IS_plot(filename,fmin=20,**model):
     with open(filename,'r') as file:
         txt = file.read()
         lines = txt.splitlines()
@@ -135,111 +158,8 @@ def plot(filename,fmin=20,**model):
     print(*['  %s \t: %s'%(k,v) for k,v in res.items()],sep='\n')
     return res
 
-def regress_simplified_randles_cell(f,Z,fmin=0,scalechange=0.1,maxiter=10000,Rct=1000,Rsol=10,Cdl=1e-7,n=0.8,tryparams=False,attempts=1000):
-    Z    = Z[f>fmin]
-    f    = f[f>fmin]
-    Zm   = lambda Rs,Rc,C,n : Rs + (Rc+(f*np.pi*2)**n*C*Rc**2*np.cos(n*np.pi/2)-1j*(np.pi*2*f)**n*C*Rc**2*np.sin(n*np.pi/2))/(1+2*(f*np.pi*2)**n*C*Rc*np.cos(n*np.pi/2)+(np.pi*2*f)**(2*n)*C**2*Rc**2)
-    err  = lambda Rs,Rc,C,n : (z:=Zm(Rs,Rc,C,n),) and np.sum(((z.real-Z.real)*np.log10(f))**2+((z.imag-Z.imag)*np.log10(f))**2)
-    err0 = err(Rsol,Rct,Cdl,n)
-
-    if tryparams:
-        for i in range(attempts):
-            Rs = Rsol*2**np.random.normal(loc=0,scale=2)
-            Rc = Rct*2**np.random.normal(loc=0,scale=2)
-            Cd = Cdl*2**np.random.normal(loc=0,scale=2)
-            n_ = 1/(5**np.random.random())
-            e = err(Rs,Rc,Cd,n_)
-            if err0>e:
-                Rsol = Rs
-                Rct  = Rc
-                Cdl  = Cd
-                n    = n_
-                err0 = e
-    
-    err0 = err(Rsol,Rct,Cdl,n)
-    errinit = err0
-    
-    param = np.array([Rsol,Rct,Cdl,n],dtype='float64')
-    scale = [2,2,2,1.1]
-    
-    for i in range(maxiter*len(param)):
-        p = np.random.randint(len(param))
-        scaletmp   = [scale[k] if k==p else 1 for k in range(len(param))]
-        paramplus  = param*scaletmp
-        paramminus = param/scaletmp
-
-        errplus  = err(*paramplus)
-        errminus = err(*paramminus)
-        if errplus<errminus:
-            errnew = errplus
-            paramnew = paramplus
-        else:
-            errnew = errminus
-            paramnew = paramminus
-        
-        if err0>errnew:
-            param = paramnew
-            err0 = errnew
-            scale[p] **= 1+np.random.random()*scalechange
-        else:
-            scale[p] **= 1/(1+np.random.random()*scalechange/len(scale))
-    return param
-
-def i0_regression(Rct,Cred,Cox,T=298.15,z=1,accuracy=3):
-    # zoom is a logarithmic value!
-    F   = 96850
-    R   = 8.314
-    i0  = R*T/z/F/Rct
-    f   = lambda beta,k0 : F * k0 * Cred**beta * Cox**(1-beta)
-
-    # first step: fit beta parameter;
-    # -> find beta which yields values that are proportional to exp data
-    # -> minimize standard deviation of factor
-    
-    err = lambda beta : (factor:=f(beta,0.01)/i0,
-                         avfact:=sum(factor)/len(factor)) and \
-                        np.sum((factor-avfact)**2)/(len(Rct)-1)
-
-    values = np.linspace(0,1,int(10**accuracy+1))
-    errors = []
-    for v in values: errors.append(err(v))
-    errors = np.array(errors)
-    beta = values[errors.argmin()]
-    
-    # second step: fit k0 scalar
-
-    sum1 = i0.sum()
-    sum2 = f(beta,1).sum()
-
-    k0 = sum1/sum2
-    val = np.linspace(1/32,31/32,1001)
-    f_Rct = lambda i0 : R*T/z/F/i0
-    i0_ = F*k0*((Cred[0]+Cox[0])*val)**beta*((Cred[0]+Cox[0])*(1-val))**(1-beta)
-
-    fig,ax = plt.subplots()
-    ax.spines['top'].set_visible(False)
-    ax.spines['right'].set_visible(False)
-    ax.set_ylabel('R$_{ct}$',rotation=0,fontsize=11)
-    ax.yaxis.set_label_coords(-0.05,0.95)
-    ax.set_xlabel(r'$\frac{\underset{\,}{C_{red}}}{\overset{\,}{C_{ges}}}$',fontsize=14)
-    ax.xaxis.set_label_coords(1.05,-0.025)
-    ax.plot(Cred/(Cred+Cox),Rct,'x',c='#f00',label='Modelldaten')
-    ax.plot(val,f_Rct(i0_),label='extrapolierter Fit')
-    ax.set_ylim(0,None)
-    ax.set_xlim(0,1)
-    fig.legend()
-    fig.tight_layout()
-
-    return beta,k0
-
-R = 8.314
-F = 96850
-z = 1
-T = 298.15
-
-
-
-#param = plot('EIS data/e1_s7.txt',fmin=1000)#,Rct=13800,Cdl=454.2e-9,Rsol=160.6,n=0.81)
-i0_regression(np.array([123.24,61.86,205.04]),
-	          np.array([0.012,0.0064,0.0008]),
-		  np.array([0.0008,0.0064,0.012]))
+Rct  = np.array([123.24,61.86,205.04])
+Cred = np.array([0.012,0.0064,0.0008])
+Cox  = np.array([0.0008,0.0064,0.012])
+beta,k0 = i0_regression(Rct,Cred,Cox)
+i0_plot(Rct,Cred,Cox,beta,k0)
