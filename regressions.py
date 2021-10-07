@@ -5,22 +5,34 @@
 import numpy as np
 
 # supply frequency numpy array and associated array of complex impedances
-def regress_simplified_randles_cell(f,Z,fmin=0,scalechange=0.1,maxiter=10000,Rct=1000,Rsol=10,Cdl=1e-7,n=0.8,tryparams=False,attempts=1000):
+def regress_simplified_randles_cell(f,Z,fmin=0,fweight=1,empirical_Rsol=True,scalechange=0.1,maxiter=10000,tryparams=False,attempts=1000):
     Z    = Z[f>fmin]
     f    = f[f>fmin]
+    Z = Z[f.argsort()]
+    f = f[f.argsort()]
+    minlog = np.log(f.min())-0.5
+    z1 = Z[-1]
+    z2 = Z[-2]
+    x1,x2 = z1.real,z2.real
+    y1,y2 = -z1.imag,-z2.imag
+    Rsol = (x1+(x2-x1)*y1/(y1-y2)+x1)/2
+    Rct  = 1000
+    Cdl  = 1e-7
+    n    = 0.8
+    
     Zm   = lambda Rs,Rc,C,n : Rs + (Rc+(f*np.pi*2)**n*C*Rc**2*np.cos(n*np.pi/2)-1j*(np.pi*2*f)**n*C*Rc**2*np.sin(n*np.pi/2))/(1+2*(f*np.pi*2)**n*C*Rc*np.cos(n*np.pi/2)+(np.pi*2*f)**(2*n)*C**2*Rc**2)
-    err  = lambda Rs,Rc,C,n : (z:=Zm(Rs,Rc,C,n),) and np.sum(((z.real-Z.real)*np.log10(f))**2+((z.imag-Z.imag)*np.log10(f))**2)
+    err  = lambda Rs,Rc,C,n : (z:=Zm(Rs,Rc,C,n),) and np.sum(((z.real-Z.real)*(np.log(f)-minlog)**fweight)**2+((z.imag-Z.imag)*(np.log(f)-minlog)**fweight)**2)
     err0 = err(Rsol,Rct,Cdl,n)
 
     if tryparams:
         for i in range(attempts):
-            Rs = Rsol*2**np.random.normal(loc=0,scale=2)
+            if not empirical_Rsol: Rs = Rsol*2**np.random.normal(loc=0,scale=2)
             Rc = Rct*2**np.random.normal(loc=0,scale=2)
             Cd = Cdl*2**np.random.normal(loc=0,scale=2)
             n_ = 1/(5**np.random.random())
-            e = err(Rs,Rc,Cd,n_)
+            e = err(Rs if not empirical_Rsol else Rsol,Rc,Cd,n_)
             if err0>e:
-                Rsol = Rs
+                if not empirical_Rsol: Rsol = Rs
                 Rct  = Rc
                 Cdl  = Cd
                 n    = n_
@@ -33,7 +45,7 @@ def regress_simplified_randles_cell(f,Z,fmin=0,scalechange=0.1,maxiter=10000,Rct
     scale = [2,2,2,1.1]
     
     for i in range(maxiter*len(param)):
-        p = np.random.randint(len(param))
+        p = np.random.randint(empirical_Rsol,len(param))
         scaletmp   = [scale[k] if k==p else 1 for k in range(len(param))]
         paramplus  = param*scaletmp
         paramminus = param/scaletmp
