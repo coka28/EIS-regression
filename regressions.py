@@ -1,7 +1,10 @@
 # EIS parameter regression & i0 regression from Rct values
+# required packages: numpy
+# install via cmd : python -m pip install numpy
 
 import numpy as np
 
+# supply frequency numpy array and associated array of complex impedances
 def regress_simplified_randles_cell(f,Z,fmin=0,scalechange=0.1,maxiter=10000,Rct=1000,Rsol=10,Cdl=1e-7,n=0.8,tryparams=False,attempts=1000):
     Z    = Z[f>fmin]
     f    = f[f>fmin]
@@ -53,7 +56,6 @@ def regress_simplified_randles_cell(f,Z,fmin=0,scalechange=0.1,maxiter=10000,Rct
     return param
 
 def i0_regression(Rct,Cred,Cox,T=298.15,z=1,accuracy=3):
-    # zoom is a logarithmic value!
     F   = 96850
     R   = 8.314
     i0  = R*T/z/F/Rct
@@ -81,6 +83,3 @@ def i0_regression(Rct,Cred,Cox,T=298.15,z=1,accuracy=3):
     k0 = sum1/sum2
 
     return beta,k0
-
-#param = plot('EIS data/e1_s7.txt',fmin=1000)#,Rct=13800,Cdl=454.2e-9,Rsol=160.6,n=0.81)
-
